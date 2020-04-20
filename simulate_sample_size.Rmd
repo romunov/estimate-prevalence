@@ -1,0 +1,67 @@
+---
+title: "What sample size to estimate infection prevelance, a simulation study"
+author: "Roman Luštrik"
+date: "2020-04-18"
+output: html_document
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo = TRUE}
+library(ggplot2)
+
+source("simulation_functions.R", max.deparse.length = 1000, echo = TRUE)
+
+options(scipen = 14)
+```
+
+In order to successfully determine level of prevalence of a disease on a sample of population, we need to gather a sufficiently large sample. Here, I define the power as percentage (out of $propN$) of cases when simulated value is included in 95% CI.
+
+Algorithm:
+
+1. sample $N$ individuals from a binomial distribution of size 1 and $P = myprob$
+2. calculate confidence intervals and estimate of prevalence
+3. repeat 1-2 $propN$ times -> $X$
+4. calculate proportion of times and simulated $P$ is within the confidence intervals ($within_ci$) and its standard deviations for $X$
+
+Parameters in:
+ * simulated probability ($prob$)
+ * simulated population size ($N$)
+ * number of times simulation is run for each $N$ ($propN$)
+ 
+ Parameters out:
+ 
+ * parameter estimate $p$
+ * lower confidence intervals of $p$
+ * upper confidence interval of $p$
+ * power (in %)
+
+```{r}
+probs1 <- c(0.0001, 0.0005, 0.001, 0.01, 0.1)
+```
+
+```{r, warning = FALSE}
+sims1 <- runBatch(simseq = seq(from = 200, to = 800, by = 200),
+                  myprob = probs1)
+sims2 <- runBatch(simseq = seq(from = 1000, to = 10000, by = 1000),
+                  myprob = probs1)
+```
+
+```{r}
+sims_1_2 <- do.call(rbind, list(sims1, sims2))
+
+ggplot(sims_1_2, aes(x = N, y = power, color = as.factor(prob))) +
+  theme_bw() +
+  theme(legend.position = "top") +
+  scale_color_brewer(palette = "Set1", name = "simulated prevalence") +
+  scale_y_continuous(breaks = seq(0, 1, by = 0.2)) +
+  geom_vline(xintercept = 3000, color = "grey40") +
+  geom_line() +
+  geom_point(size = 3)
+```
+
+Each point represents average of 100 ($propN$) simulations where simulated value has been covered by 95% confidence interval - power.
+
+Notice how power is increasing slowly for simulated prevalence 0.0001 and doesn't reach satisfactory power even after sample size of 10000. For simulated prevalence 0.0005 and 0.001 there is a steep curve that reaches power of 0.8 around 3000 samples (vertical line). For simulated prevalences $\geq 0.01$, power is nearly constantly over the 0.9 line.
