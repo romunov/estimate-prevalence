@@ -2,7 +2,12 @@
 title: "What sample size to estimate infection prevelance, a simulation study"
 author: "Roman Luštrik"
 date: "2020-04-18"
-output: html_document
+output:
+  html_document:
+    toc: true
+    toc_float:
+      toc_collapsed: true
+    theme: cosmo
 ---
 
 ```{r setup, include = FALSE}
@@ -23,14 +28,17 @@ source("simulation_functions.R", max.deparse.length = 1000, echo = TRUE)
 options(scipen = 14)
 ```
 
-In order to successfully determine level of prevalence of a disease on a sample of population, we need to gather a sufficiently large sample. Here, I define the power as percentage (out of `propN`) of cases when simulated value is included in 95% CI.
+# No introduction
 
-Algorithm:
+In order to successfully determine level of prevalence of a disease on a sample of population, we need to gather a sufficiently large sample.
 
-1. sample `N` individuals from a binomial distribution of size 1 and $Y \sim Bin(myprob)$
-2. calculate confidence intervals and estimate of prevalence
+# Algorithm
+
+1. sample `N` individuals from a binomial distribution $Y \sim B(1, myprob)$
+    1. if kerning used, introduce false positive and false negative
+2. calculate confidence intervals and estimate of prevalence ($\hat{p}$)
 3. repeat 1-2 `propN` times $\rightarrow$ `X`
-4. calculate proportion of times and simulated $P$ is within the confidence intervals (`within_ci`) and its standard deviations for `X`
+4. calculate proportion of times simulated `myprob` is within the confidence intervals (`within_ci`) and calculate its standard deviations (`sd`) for `X`
 
 Parameters in:
 
@@ -40,18 +48,29 @@ Parameters in:
  
 Parameters out:
  
- * parameter estimate $p$
- * lower confidence intervals of $p$
- * upper confidence interval of $p$
+ * lower confidence intervals of $\hat{p}$
+ * parameter estimate $\hat{p}$
+ * upper confidence interval of $\hat{p}$
+ * standard deviation of $\hat{p}$
  * power (in %)
+
+## Kerning
 
 Above algorithm is assuming an ideal situation (what some might consider a spherical chicken in a vacuum). To make things more interesting, let's introduce false positive and false negative rates.
 
 Additional parameters have been introduced, namely `fp` and `fn`.
 
-For each simulation, kerning (adjusting of values) has been performed after N samples has been drawn from Bernoulli ($Y \sim Bin(myprob)$) distribution. To introduce false positives, a percent of negative cases has been replaced by a vector of equal size where values have been drawn from a Bernoulli distribution with probability set at `fp` ($K_{FP} \sim Bin(fp)$). To introduce false negative, a percentage of positive cases has been replaced by a vector of equal size where values have been drawn from Bernoulli distribution with probability $K_{FN} \sim Bin(1 - fn)$.
 
-```{r preapre_parameteres}
+For each simulation, kerning (adjusting of values) has been performed after N samples has been drawn from $Y \sim B(1, myprob)$. To introduce false positives, a percent of negative cases has been replaced by a vector of equal size where values have been drawn from a Binomial distribution of size 1 and with probability set at `fp` ($K_{FP} \sim B(1, fp)$). To introduce false negative, a percentage of positive cases has been replaced by a vector of equal size where values have been drawn from binomial distribution with probability $K_{FN} \sim B(1, 1 - fn)$.
+
+# Simulation assumptions
+
+ * sampling is done at random for all variables which influence prevalence (spatial, temporal, demographic, medical...)
+ * there are no test shy responders (responders unwilling to take the test for whatever reason)
+ * false positive and false negative rates are occurring at random
+
+# Parameters
+```{r prepare_parameteres}
 probs1 <- c(0.0001, 0.00025, 0.0005, 
             0.001, 0.003, 0.005, 0.008, 
             0.01, 
@@ -59,6 +78,7 @@ probs1 <- c(0.0001, 0.00025, 0.0005,
 propN <- 100
 ```
 
+# Ideal simulation
 ```{r simulations_1_2, warning = FALSE, cache = TRUE}
 sims1 <- runBatch(simseq = seq(from = 200, to = 800, by = 200),
                   myprob = probs1, propN = propN,
@@ -69,7 +89,7 @@ sims2 <- runBatch(simseq = seq(from = 1000, to = 10000, by = 1000),
 sims_1_2 <- do.call(rbind, list(sims1, sims2))
 ```
 
-```{r figure_1_2, out.width = "\\linewidth"}
+```{r plotpower_1_2, out.width = "\\linewidth"}
 plotPower(sims_1_2)
 ```
 
@@ -77,7 +97,7 @@ Each point represents average of `r propN` simulations where simulated value has
 
 Notice how power is increasing slowly for low simulated prevalence (i.e. 0.0001) and doesn't reach satisfactory power even after sample size of 10000. For simulated prevalence 0.0005 and 0.001 there is a steep curve that almost reaches power of 0.8 around 3000 samples (vertical dashed line). For simulated prevalence values $\geq 0.003$, power is nearly constantly over the 0.9 power line given a reasonable sample size ($\geq 1000$).
 
-```{r figure_1_2_2, out.width = "\\linewidth"}
+```{r plotci_1_2, out.width = "\\linewidth"}
 plotCI(sims_1_2)
 ```
 
@@ -96,7 +116,7 @@ sims3 <- runBatch(simseq = seq(from = 200, to = 800, by = 200),
                   myprob = probs1, fp = fp, fn = fn, propN = propN,
                   cl = cl)
 sims4 <- runBatch(simseq = seq(from = 1000, to = 10000, by = 1000),
-                  myprob = probs1, propN = propN,
+                  myprob = probs1, propN = propN, fp = fp, fn = fn,
                   cl = cl)
 
 sims_3_4 <- do.call(rbind, list(sims3, sims4))
@@ -108,20 +128,75 @@ plotPower(sims_3_4)
 
 It is apparent that injecting bias is disrupting the ideal simulation presented above. Estimates for "small samples" ($N < 1500$) appear more erratic, but stabilizes towards the $N \geq 2000$ mark. The most affected simulations appear to be those where prevalence has been simulated to be $\geq 0.001$. See figure below for a per-prevalence comparison.
 
-```{r figure_3_4_2, out.width = "\\linewidth"}
+```{r plotci_3_4, out.width = "\\linewidth"}
 plotCI(sims_3_4)
 ```
 
 This image shows how accuracy of the estimate is increasing with sample size (bars show $\pm 1$ SD). For $N < 1000$, anything goes for all simulated prevalence values. Most simulations appear to be overestimating prevalence, except case for $0.1$, which is underestimating. For example, for 0.0001, confidence interval spans from $\sim$ 0.005 to $\sim$ 0.015, nowhere near the simulated prevalence. Compared to the ideal simulation, estimates of prevalence "snaps" to simulated value around $N=1000$ and stays there with increasing sample size. For simulated prevalence of 0.1, estimates for low number of samples is underestimating but we see a "snap" to simulated value at about the same sample size as the rest of simulated prevalence values. 
 
-# Alternate view
+# Using less kerning
+## FN = 0.1
+```{r simulation_less_kerning_1, cache = TRUE}
+sims_5 <- runBatch(simseq = c(
+        seq(from = 1000, to = 10000, by = 1000),
+        seq(from = 200, to = 800, by = 200)),
+        myprob = probs1, propN = propN, fp = fp, fn = 0.1,
+        cl = cl)
+```
+
+```{r plotpower_5}
+plotPower(sims_5)
+```
+
+```{r plotci_5}
+plotCI(sims_5)
+```
+
+## FN = 0.01
+```{r simulation_less_kerning_2, cache = TRUE}
+sims_6 <- runBatch(simseq = c(
+        seq(from = 1000, to = 10000, by = 1000),
+        seq(from = 200, to = 800, by = 200)),
+        myprob = probs1, propN = propN, fp = fp, fn = 0.01,
+        cl = cl)
+```
+
+```{r plotpower_6}
+plotPower(sims_6)
+```
+
+```{r plotci_6}
+plotCI(sims_6)
+```
+
+## FN = 0.001
+```{r simulation_less_kerning_3, cache = TRUE}
+sims_7 <- runBatch(simseq = c(
+        seq(from = 1000, to = 10000, by = 1000),
+        seq(from = 200, to = 800, by = 200)),
+        myprob = probs1, propN = propN, fp = fp, fn = 0.001,
+        cl = cl)
+```
+
+```{r plotpower_7}
+plotPower(sims_7)
+```
+
+```{r plotci_7}
+plotCI(sims_7)
+```
+
+# Alternate view of the data
 
 Below images shows `ideal` and `intervention` (with kerning) simulations side by side for all simulated prevalence values. Notice the drop in power for simulated prevalence numbers on the high end. My guess would be that this happens because for smaller sample size, kernining has a relatively large effect and as the sample size increases, the relative importance drops and simulation scenarios converge.
 ```{r plot_combined_image, out.width = "\\linewidth"}
 sims_1_2$source <- "ideal"
-sims_3_4$source <- "intervention"
+sims_3_4$source <- "fn=0.33"
+sims_5$source <- "fn=0.1"
+sims_6$source <- "fn=0.01"
+sims_7$source <- "fn=0.001"
 
-sims <- do.call(rbind, list(sims_1_2, sims_3_4))
+sims <- do.call(rbind, list(sims_1_2, sims_3_4, sims_5, sims_6, sims_7))
 
 ggplot(sims, aes(x = N, y = power, color = source)) +
         theme_bw() +
@@ -137,14 +212,15 @@ ggplot(sims, aes(x = N, y = power, color = source)) +
 
 Because of large confidence intervals for small simulated prevalence values, confidence intervals for higher $N$ estimates are not visible. See figure below for cases where simulations for $N < 2000$ have been excluded. Some cases estimate prevalence in negative values and should be considered unreliable. Bars represent $\pm 1$ SD.
 
-```{r, out.width = "\\linewidth"}
+```{r out.width = "\\linewidth"}
 plotCI(sims_3_4[sims_3_4$N >= 2000, ])
 ```
 
+# Used packages
 ```{r}
 sessionInfo()
 end <- Sys.time()
 simtime <- end - start
 ```
 
-Processing took `r round(simtime, 3)` `r attr(simtime, "units")`.
+Processing took `r round(simtime, 3)` `r attr(simtime, "units")` (results may have been cached so your experience may differ).
