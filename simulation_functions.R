@@ -18,10 +18,8 @@ addFNFPbias <- function(x, fp, fn) {
   # false positive (basically no conversion from 0 to 1). Conversely,
   # if fp is large, almost all negative subjects will be tested as
   # false positive, in which case the test is a waste of resources.
-  if (!is.na(fp)) {
-    new.fp <- rbinom(n = length(zeros), size = 1, prob = fp)
-    x[zeros] <- new.fp
-  }
+  new.fp <- rbinom(n = length(zeros), size = 1, prob = fp)
+  x[zeros] <- new.fp
   
   # Work on false negative (1 -> 0).
   # By setting 1 - fn, we are removing the fn portion of ones from
@@ -29,10 +27,8 @@ addFNFPbias <- function(x, fp, fn) {
   # have been tested positive will not be converted to false negative.
   # Vice versa, if fn is large, only a small fraction of positive cases
   # will remain positive and most will be converted to 0.
-  if (!is.na(fn)) {
-    new.fn <- rbinom(n = length(ones), size = 1, prob = 1 - fn)
-    x[ones] <- new.fn
-  }
+  new.fn <- rbinom(n = length(ones), size = 1, prob = 1 - fn)
+  x[ones] <- new.fn
   
   x
 }
@@ -55,7 +51,7 @@ simulateSampling <- function(my.N, myprob, fp, fn) {
 
 #' @param propN Number of simulations for same N in order to ascertain coverage.
 #'              Defaults to 100.
-simulateStudy <- function(N, myseed = NULL, myprob, propN, fp, fn) {
+simulateStudy <- function(N, myseed = NULL, myprob, propN, fp = 0, fn = 0) {
   if (is.null(myseed)) {
     myseed <- sample(1:10^9, size = 1)
   }  
@@ -71,65 +67,112 @@ simulateStudy <- function(N, myseed = NULL, myprob, propN, fp, fn) {
   sims$prob <- myprob
   sims$fp <- fp
   sims$fn <- fn
-  sims$power <- ifelse(sims$prob >= sims$lci & sims$prob <= sims$uci,
-                       yes = TRUE, no = FALSE)
-  
-  out <- colMeans(sims)
-  out["sd"] <- sd(sims$y)
-  
-  out
-}
-
-runBatch <- function(simseq, myprob, propN = 100, fp = NA, fn = NA,
-                     verbose = FALSE, cl) {
-  clusterExport(cl = cl, varlist = c("simseq", "propN", "fp", "fn", "verbose"), 
-                envir = environment())
-  
-  sims <- parSapply(cl = cl, X = myprob, FUN = function(x) {
-    sim <- sapply(simseq, FUN = simulateStudy, 
-                  myprob = x, 
-                  propN = propN,
-                  fp = fp,
-                  fn = fn,
-                  simplify = FALSE)
-    sim <- do.call(rbind, sim)
-    
-    if (verbose) {
-      print(sprintf("%s done", x))
-    }
-    
-    sim
-  }, simplify = FALSE)
-  
-  sims <- do.call(rbind, sims)
-  sims <- as.data.frame(sims)
-  
-  sims$power_80 <- ifelse(sims$power >= 0.8, yes = TRUE, no = FALSE)
-  sims$power_90 <- ifelse(sims$power >= 0.9, yes = TRUE, no = FALSE)
-  sims$power_99 <- ifelse(sims$power >= 0.99, yes = TRUE, no = FALSE)
   
   sims
 }
 
+simulateShell <- function(params) {
+  sim1 <- parApply(cl = cl, X = params, MARGIN = 1, FUN = function(x) {
+    simulateStudy(
+      N = x["N"],
+      myprob = x["myprob"],
+      propN = x["propN"],
+      fp = x["fp"],
+      fn = x["fn"]
+    )
+  })
+  
+  sim1 <- do.call(rbind, sim1)
+}
+
 plotPower <- function(x) {
-  ggplot(x, aes(x = N, y = power, color = as.factor(prob))) +
+  xsplit <- split(x, list(x$N, x$prob, x$fp, x$fn))
+  xpower <- sapply(xsplit, FUN = function(p) {
+    p$power <- ifelse(p$prob >= p$lci & p$prob <= p$uci,
+                      yes = TRUE, no = FALSE)
+    p
+  }, simplify = FALSE)
+  xmedians <- sapply(xpower, FUN = function(p) {
+    data.frame(
+      lci = median(p$lci),
+      y = median(p$y),
+      uci = median(p$uci),
+      power = mean(p$power),
+      prob = unique(p$prob),
+      N = unique(p$N),
+      fp = unique(p$fp),
+      fn = unique(p$fn),
+      powerin = sum(p$power)
+    )
+  }, simplify = FALSE)
+  
+  x <- do.call(rbind, xmedians)
+  rownames(x) <- NULL
+  
+  ggplot(x, aes(x = N, y = powerin, color = as.factor(prob))) +
     theme_bw() +
     theme(legend.position = "top", legend.direction = "horizontal") +
     scale_color_brewer(palette = "Set1", name = "simulated prevalence") +
-    scale_y_continuous(breaks = seq(0, 1, by = 0.2)) +
-    scale_x_continuous(breaks = seq(0, 10000, by = 2000)) +
+    scale_y_continuous(breaks = seq(0, 100, by = 10), limits = c(0, 100)) +
+    scale_x_continuous(breaks = seq(0, 10000, by = 1000)) +
     geom_vline(xintercept = 3000, color = "grey60", linetype = "dashed") +
     geom_line() +
-    geom_point(size = 2.5)
+    geom_point(size = 2.5, alpha = 0.75)
 }
 
 plotCI <- function(x) {
+  xsplit <- split(x, list(x$N, x$prob, x$fp, x$fn))
+  
+  xmedians <- sapply(xsplit, FUN = function(p) {
+    data.frame(
+      lci = median(p$lci),
+      y = mean(p$y),
+      uci = median(p$uci),
+      prob = unique(p$prob),
+      N = unique(p$N),
+      fp = unique(p$fp),
+      fn = unique(p$fn),
+      powerin = sum(p$power)
+    )
+  }, simplify = FALSE)
+  
+  x <- do.call(rbind, xmedians)
+  rownames(x) <- NULL
+  
   ggplot(x, aes(x = N, y = y)) +
     theme_bw() +
     theme(legend.position = "top") +
     geom_vline(xintercept = 3000, color = "grey60", linetype = "dashed") +
     geom_hline(aes(yintercept = prob), color = "grey60", linetype = "dashed") +
     scale_x_continuous(breaks = seq(0, 10000, by = 2000)) +
-    geom_pointrange(aes(ymin = y - sd, ymax = y + sd), size = 0.25) +
+    geom_pointrange(aes(ymin = lci, ymax = uci), size = 0.25) +
     facet_wrap(~ prob, scales = "free_y")
+}
+
+summarizeSimulation <- function(x) {
+  xsplit <- split(x, list(x$N, x$prob, x$fp, x$fn))
+  
+  xpower <- sapply(xsplit, FUN = function(p) {
+    p$power <- ifelse(p$prob >= p$lci & p$prob <= p$uci,
+                      yes = TRUE, no = FALSE)
+    p
+  }, simplify = FALSE)
+  
+  xmedians <- sapply(xpower, FUN = function(p) {
+    data.frame(
+      lci = median(p$lci),
+      y = mean(p$y),
+      uci = median(p$uci),
+      prob = unique(p$prob),
+      N = unique(p$N),
+      fp = unique(p$fp),
+      fn = unique(p$fn),
+      powerin = sum(p$power)
+    )
+  }, simplify = FALSE)
+  
+  x <- do.call(rbind, xmedians)
+  rownames(x) <- NULL
+  
+  x
 }

@@ -20,7 +20,7 @@ library(ggplot2)
 library(parallel)
 
 # Needed for parallel calculations.
-cl <- makeCluster(4, outfile = "clusterfuck.txt")
+cl <- makeCluster(7, outfile = "clusterfuck.txt")
 invisible(clusterEvalQ(cl = cl, expr = source("simulation_functions.R")))
 
 source("simulation_functions.R", max.deparse.length = 1000, echo = TRUE)
@@ -70,35 +70,35 @@ For each simulation, kerning (adjusting of values) has been performed after N sa
  * false positive and false negative rates are occurring at random
 
 # Parameters
+Parameters start at 0.00075, which is assuming 1500 infected in a population of 2000000. It is probably safe to assume that number of infected or reconvalesced would not be below this threshold. Sample sizes go from 1000 to 10000. Lower end because this is close to catching one infected individual at assumed prevalence 0.00075 and upper 10000 because this would be in the upper limits of what this author would consider feasible to sample and test in current climate.
 ```{r prepare_parameteres}
-probs1 <- c(0.0001, 0.00025, 0.0005, 
-            0.001, 0.003, 0.005, 0.008, 
-            0.01, 
-            0.1)
+probs1 <- c(0.00075, 0.001, 0.003, 
+            0.005, 0.008, 0.01, 
+            0.05, 0.07, 0.1)
 propN <- 100
+stepN <- seq(from = 1000, to = 10000, by = 1000)
 ```
 
 # Ideal simulation
-```{r simulations_1_2, warning = FALSE, cache = TRUE}
-sims1 <- runBatch(simseq = seq(from = 200, to = 800, by = 200),
-                  myprob = probs1, propN = propN,
-                  cl = cl)
-sims2 <- runBatch(simseq = seq(from = 1000, to = 10000, by = 1000),
-                  myprob = probs1, propN = propN,
-                  cl = cl)
-sims_1_2 <- do.call(rbind, list(sims1, sims2))
+```{r simulations_1, warning = FALSE, cache = TRUE}
+sim1.params <- expand.grid(N = stepN,
+                           myprob = probs1, 
+                           propN = propN,
+                           fp = 0,
+                           fn = 0)
+sim1 <- simulateShell(params = sim1.params)
 ```
 
-```{r plotpower_1_2, out.width = "\\linewidth"}
-plotPower(sims_1_2)
+```{r plotpower_1, out.width = "\\linewidth"}
+plotPower(sim1)
 ```
 
 Each point represents average of `r propN` simulations where simulated value has been covered by 95 % confidence interval - power.
 
 Notice how power is increasing slowly for low simulated prevalence (i.e. 0.0001) and doesn't reach satisfactory power even after sample size of 10000. For simulated prevalence 0.0005 and 0.001 there is a steep curve that almost reaches power of 0.8 around 3000 samples (vertical dashed line). For simulated prevalence values $\geq 0.003$, power is nearly constantly over the 0.9 power line given a reasonable sample size ($\geq 1000$).
 
-```{r plotci_1_2, out.width = "\\linewidth"}
-plotCI(sims_1_2)
+```{r plotci_1, out.width = "\\linewidth"}
+plotCI(sim1)
 ```
 
 This figure represents estimates (bars show $\pm 1$ SD) for various simulated prevalence values. Estimates appear to have large variability for small sample sizes ($N < 1500$) but mean value still appears to be close to simulated prevalence. Variability is decreasing with sample size and appears to be approximately stable around $N=3000$.
@@ -108,28 +108,23 @@ This figure represents estimates (bars show $\pm 1$ SD) for various simulated pr
 The above simulation is done in a perfect world where tests work 100 % of the time and do not make a mistake. The following simulation will introduce bias. Specifically, we will convert positive cases to negative, simulating false negative rate (`fn`). Negative cases will be converted to positive at the false positive rate (`fp`).
 
 False negative rate from literature is assumed to be $fn = 0.33$ (worst  case scenario, swab taken 10 days after symptom onset). False positive is likely low, assuming worst case scenario of $fp = 0.01$. See [Wikramaratna et al. (2020)](https://www.medrxiv.org/content/10.1101/2020.04.05.20053355v2) for discussion on false negative rates. Briefly, they depend on time and location of where the samples were collected (nasal vs throat swab) while low false positive rates are mainly due to RT-PCR method being highly specific (if virus is present in the sample).
-```{r simulations_3_4, warning = FALSE, cache = TRUE}
-fn <- 0.33
-fp <- 0.01
-
-sims3 <- runBatch(simseq = seq(from = 200, to = 800, by = 200),
-                  myprob = probs1, fp = fp, fn = fn, propN = propN,
-                  cl = cl)
-sims4 <- runBatch(simseq = seq(from = 1000, to = 10000, by = 1000),
-                  myprob = probs1, propN = propN, fp = fp, fn = fn,
-                  cl = cl)
-
-sims_3_4 <- do.call(rbind, list(sims3, sims4))
+```{r simulations_2, warning = FALSE, cache = TRUE}
+sim2.params <- expand.grid(N = stepN,
+                           myprob = probs1, 
+                           propN = propN,
+                           fp = 0.01,
+                           fn = 0.33)
+sim2 <- simulateShell(params = sim2.params)
 ```
 
-```{r figure_3_4, out.width = "\\linewidth"}
-plotPower(sims_3_4)
+```{r plotpower_2, out.width = "\\linewidth"}
+plotPower(sim2)
 ```
 
 It is apparent that injecting bias is disrupting the ideal simulation presented above. Estimates for "small samples" ($N < 1500$) appear more erratic, but stabilizes towards the $N \geq 2000$ mark. The most affected simulations appear to be those where prevalence has been simulated to be $\geq 0.001$. See figure below for a per-prevalence comparison.
 
-```{r plotci_3_4, out.width = "\\linewidth"}
-plotCI(sims_3_4)
+```{r plotci_2, out.width = "\\linewidth"}
+plotCI(sim2)
 ```
 
 This image shows how accuracy of the estimate is increasing with sample size (bars show $\pm 1$ SD). For $N < 1000$, anything goes for all simulated prevalence values. Most simulations appear to be overestimating prevalence, except case for $0.1$, which is underestimating. For example, for 0.0001, confidence interval spans from $\sim$ 0.005 to $\sim$ 0.015, nowhere near the simulated prevalence. Compared to the ideal simulation, estimates of prevalence "snaps" to simulated value around $N=1000$ and stays there with increasing sample size. For simulated prevalence of 0.1, estimates for low number of samples is underestimating but we see a "snap" to simulated value at about the same sample size as the rest of simulated prevalence values. 
@@ -137,72 +132,81 @@ This image shows how accuracy of the estimate is increasing with sample size (ba
 # Using less kerning
 ## FN = 0.1
 ```{r simulation_less_kerning_1, cache = TRUE}
-sims_5 <- runBatch(simseq = c(
-        seq(from = 1000, to = 10000, by = 1000),
-        seq(from = 200, to = 800, by = 200)),
-        myprob = probs1, propN = propN, fp = fp, fn = 0.1,
-        cl = cl)
+sim3.params <- expand.grid(N = stepN,
+                           myprob = probs1, 
+                           propN = propN,
+                           fp = 0.01,
+                           fn = 0.1)
+sim3 <- simulateShell(params = sim3.params)
 ```
 
-```{r plotpower_5}
-plotPower(sims_5)
+```{r plotpower_less_kerning_1}
+plotPower(sim3)
 ```
 
-```{r plotci_5}
-plotCI(sims_5)
+```{r plotci_less_kerning_1}
+plotCI(sim3)
 ```
 
 ## FN = 0.01
 ```{r simulation_less_kerning_2, cache = TRUE}
-sims_6 <- runBatch(simseq = c(
-        seq(from = 1000, to = 10000, by = 1000),
-        seq(from = 200, to = 800, by = 200)),
-        myprob = probs1, propN = propN, fp = fp, fn = 0.01,
-        cl = cl)
+sim4.params <- expand.grid(N = stepN,
+                           myprob = probs1, 
+                           propN = propN,
+                           fp = 0.01,
+                           fn = 0.01)
+sim4 <- simulateShell(params = sim4.params)
 ```
 
-```{r plotpower_6}
-plotPower(sims_6)
+```{r plotpower_less_kerning_2}
+plotPower(sim4)
 ```
 
-```{r plotci_6}
-plotCI(sims_6)
+```{r plotci_less_kerning_2}
+plotCI(sim4)
 ```
 
 ## FN = 0.001
 ```{r simulation_less_kerning_3, cache = TRUE}
-sims_7 <- runBatch(simseq = c(
-        seq(from = 1000, to = 10000, by = 1000),
-        seq(from = 200, to = 800, by = 200)),
-        myprob = probs1, propN = propN, fp = fp, fn = 0.001,
-        cl = cl)
+sim5.params <- expand.grid(N = stepN,
+                           myprob = probs1, 
+                           propN = propN,
+                           fp = 0.01,
+                           fn = 0.001)
+sim5 <- simulateShell(params = sim5.params)
 ```
 
-```{r plotpower_7}
-plotPower(sims_7)
+```{r plotpower_less_kerning_3}
+plotPower(sim5)
 ```
 
-```{r plotci_7}
-plotCI(sims_7)
+```{r plotci_less_kerning_3}
+plotCI(sim5)
 ```
 
 # Alternate view of the data
 
 Below images shows `ideal` and `intervention` (with kerning) simulations side by side for all simulated prevalence values. Notice the drop in power for simulated prevalence numbers on the high end. My guess would be that this happens because for smaller sample size, kernining has a relatively large effect and as the sample size increases, the relative importance drops and simulation scenarios converge.
 ```{r plot_combined_image, out.width = "\\linewidth"}
-sims_1_2$source <- "ideal"
-sims_3_4$source <- "fn=0.33"
-sims_5$source <- "fn=0.1"
-sims_6$source <- "fn=0.01"
-sims_7$source <- "fn=0.001"
+sim1summ <- summarizeSimulation(sim1)
+sim1summ$source <- "ideal"
+sim2summ <- summarizeSimulation(sim2)
+sim2summ$source <- "fn=0.33"
+sim3summ <- summarizeSimulation(sim3)
+sim3summ$source <- "fn=0.1"
+sim4summ <- summarizeSimulation(sim4)
+sim4summ$source <- "fn=0.01"
+sim5summ <- summarizeSimulation(sim5)
+sim5summ$source <- "fn=0.001"
 
-sims <- do.call(rbind, list(sims_1_2, sims_3_4, sims_5, sims_6, sims_7))
+sims <- do.call(rbind, list(sim1summ, sim2summ, sim3summ,
+                            sim3summ, sim4summ, sim5summ))
 
-ggplot(sims, aes(x = N, y = power, color = source)) +
+ggplot(sims, aes(x = N, y = powerin, color = source)) +
         theme_bw() +
         theme(legend.position = "top", legend.direction = "horizontal") +
-        scale_color_brewer(palette = "Dark2", name = "simulated conditions") +
-        scale_y_continuous(breaks = seq(0, 1, by = 0.2)) +
+        scale_color_brewer(palette = "Set1", name = "simulated conditions") +
+        # scale_y_continuous(breaks = seq(0, 100, by = 10)) +
         scale_x_continuous(breaks = seq(0, 10000, by = 2000)) +
         geom_vline(xintercept = 3000, color = "grey60", linetype = "dashed") +
         geom_line() +
@@ -213,7 +217,7 @@ ggplot(sims, aes(x = N, y = power, color = source)) +
 Because of large confidence intervals for small simulated prevalence values, confidence intervals for higher $N$ estimates are not visible. See figure below for cases where simulations for $N < 2000$ have been excluded. Some cases estimate prevalence in negative values and should be considered unreliable. Bars represent $\pm 1$ SD.
 
 ```{r out.width = "\\linewidth"}
-plotCI(sims_3_4[sims_3_4$N >= 2000, ])
+# plotCI(sims_3_4[sims_3_4$N >= 2000, ])
 ```
 
 # Used packages
