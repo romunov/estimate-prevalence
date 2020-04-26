@@ -18,8 +18,10 @@ addFNFPbias <- function(x, fp, fn) {
   # false positive (basically no conversion from 0 to 1). Conversely,
   # if fp is large, almost all negative subjects will be tested as
   # false positive, in which case the test is a waste of resources.
-  new.fp <- rbinom(n = length(zeros), size = 1, prob = fp)
-  x[zeros] <- new.fp
+  if (fp != 0) {
+    new.fp <- rbinom(n = length(zeros), size = 1, prob = fp)
+    x[zeros] <- new.fp
+  }
   
   # Work on false negative (1 -> 0).
   # By setting 1 - fn, we are removing the fn portion of ones from
@@ -27,8 +29,10 @@ addFNFPbias <- function(x, fp, fn) {
   # have been tested positive will not be converted to false negative.
   # Vice versa, if fn is large, only a small fraction of positive cases
   # will remain positive and most will be converted to 0.
-  new.fn <- rbinom(n = length(ones), size = 1, prob = 1 - fn)
-  x[ones] <- new.fn
+  if (fn != 0) {
+    new.fn <- rbinom(n = length(ones), size = 1, prob = 1 - fn)
+    x[ones] <- new.fn
+  }
   
   x
 }
@@ -175,4 +179,13 @@ summarizeSimulation <- function(x) {
   rownames(x) <- NULL
   
   x
+}
+
+plotEstimates <- function(x) {
+  ggplot(x) +
+    theme_bw() +
+    theme(axis.text.x = element_text(size = 8, angle = 90, vjust = 0.5)) +
+    geom_histogram(aes(x = y)) +
+    geom_vline(aes(xintercept = prob), color = "grey60", linetype = "dashed") +
+    facet_grid(N ~ prob, scales = "free_x")
 }
